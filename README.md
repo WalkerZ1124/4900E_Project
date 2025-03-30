@@ -10,3 +10,13 @@ This example is based on `esp_https_ota` component's APIs.
 Refer README.md in the parent directory for setup details.
 
 Example also supports binding to specific interface (either "Ethernet" or "WiFi Station"), which will allow firmware upgrade to happen through specific interface (in case multiple networking interfaces are enabled). Please see more on this through example configuration in `idf.py menuconfig -> Example Configuration -> Support firmware upgrade bind specified interface->Choose OTA data bind interface`.
+
+## EPD Driver Source  
+The EPD driver was adapted from:  
+[krzychb/esp-epaper-29-ws](https://github.com/krzychb/esp-epaper-29-ws)  
+
+## To-Do  
+- **Fix local connection certificate validation**  
+  Resolve SSL/TLS certificate errors during local network communication.  
+- **Address empty OTA status on EPD**  
+  Ensure Over-The-Air update progress/status is properly displayed on the E-paper display.  
