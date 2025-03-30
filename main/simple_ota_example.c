@@ -10,6 +10,9 @@
 #include "esp_http_server.h"
 #include "protocol_examples_common.h"
 #include "string.h"
+// epd driver
+#include "epaper-29-ws.h"
+#include "epaper_fonts.h"
 #include "esp_mac.h"
 #ifdef CONFIG_EXAMPLE_USE_CERT_BUNDLE
 #include "esp_crt_bundle.h"
@@ -24,15 +27,177 @@
 #endif
 
 #define MAX_RETRIES 10           // Maximum number of retry attempts
-#define RETRY_DELAY_MS 5000     // Delay between retries (5 seconds)
+#define RETRY_DELAY_MS 30000     // Delay between retries (30 seconds)
 #define HASH_LEN 32
 #define STATUS_BUF_SIZE 512
+static const char *TAG = "SIMPLE_OTA_EXAMPLE";
+// Pin definition of the ePaper module
+#define MOSI_PIN    14
+#define MISO_PIN    -1
+#define SCK_PIN     13
+#define BUSY_PIN    25
+#define DC_PIN      27
+#define RST_PIN     26
+#define CS_PIN      15
+
+#define OTA_STATUS_MAX_LEN 128
+static char ota_status[OTA_STATUS_MAX_LEN] = "Initializing OTA...";
+static SemaphoreHandle_t ota_status_mutex = NULL;
+
+// Color inverse. 1 or 0 = set or reset a bit if set a colored pixel
+#define IF_INVERT_COLOR 1
+
+void e_paper_task(void *pvParameter)
+{
+    epaper_handle_t device = NULL;
+
+    epaper_conf_t epaper_conf = {
+        .busy_pin = BUSY_PIN,
+        .cs_pin = CS_PIN,
+        .dc_pin = DC_PIN,
+        .miso_pin = MISO_PIN,
+        .mosi_pin = MOSI_PIN,
+        .reset_pin = RST_PIN,
+        .sck_pin = SCK_PIN,
+
+        .rst_active_level = 0,
+        .busy_active_level = 1,
+
+        .dc_lev_data = 1,
+        .dc_lev_cmd = 0,
+
+        .clk_freq_hz = 20 * 1000 * 1000,
+        .spi_host = HSPI_HOST,
+
+        .width = EPD_WIDTH,
+        .height = EPD_HEIGHT,
+        .color_inv = 1,
+    };
+
+    char ip_str[16] = {0};
+    char version_str[64] = {0};
+    char ota_status_local[OTA_STATUS_MAX_LEN] = {0};
+
+    // Get IP address
+    esp_netif_ip_info_t ip_info;
+    if (esp_netif_get_ip_info(esp_netif_get_handle_from_ifkey("WIFI_STA_DEF"), &ip_info) == ESP_OK) {
+        snprintf(ip_str, sizeof(ip_str), IPSTR, IP2STR(&ip_info.ip));
+    } else {
+        snprintf(ip_str, sizeof(ip_str), "No IP");
+    }
+
+    // Get firmware version
+    const esp_app_desc_t *app_desc = esp_app_get_description();
+    snprintf(version_str, sizeof(version_str), "FW: %.28s", app_desc->version);
+
+    while (1) {
+        // Copy the OTA status message
+        if (ota_status_mutex && xSemaphoreTake(ota_status_mutex, portMAX_DELAY)) {
+            strncpy(ota_status_local, ota_status, OTA_STATUS_MAX_LEN);
+            xSemaphoreGive(ota_status_mutex);
+        }
+
+        device = iot_epaper_create(NULL, &epaper_conf);
+        iot_epaper_set_rotate(device, E_PAPER_ROTATE_270);
+
+        // Clear the display
+        iot_epaper_clean_paint(device, UNCOLORED);
+
+        // Display IP address
+        iot_epaper_draw_string(device, 10, 10, "IP Address:", &epaper_font_16, COLORED);
+        iot_epaper_draw_string(device, 10, 30, ip_str, &epaper_font_16, COLORED);
+
+        // Display firmware version
+        iot_epaper_draw_string(device, 10, 60, "Firmware:", &epaper_font_16, COLORED);
+        iot_epaper_draw_string(device, 10, 80, version_str, &epaper_font_16, COLORED);
+
+        // Display OTA status
+        iot_epaper_draw_string(device, 10, 110, "OTA Status:", &epaper_font_16, COLORED);
+        iot_epaper_draw_string(device, 10, 130, ota_status_local, &epaper_font_16, COLORED);
+
+        // Display the frame buffer
+        iot_epaper_display_frame(device, NULL);
+
+        // Delete the device to free resources
+        iot_epaper_delete(device, true);
+
+        // Refresh every 10 seconds
+        vTaskDelay(10000 / portTICK_PERIOD_MS);
+    }
+}
+
+// void e_paper_task(void *pvParameter)
+// {
+//     epaper_handle_t device = NULL;
+
+//     epaper_conf_t epaper_conf = {
+//         .busy_pin = BUSY_PIN,
+//         .cs_pin = CS_PIN,
+//         .dc_pin = DC_PIN,
+//         .miso_pin = MISO_PIN,
+//         .mosi_pin = MOSI_PIN,
+//         .reset_pin = RST_PIN,
+//         .sck_pin = SCK_PIN,
+
+//         .rst_active_level = 0,
+//         .busy_active_level = 1,
+
+//         .dc_lev_data = 1,
+//         .dc_lev_cmd = 0,
+
+//         .clk_freq_hz = 20 * 1000 * 1000,
+//         .spi_host = HSPI_HOST,
+
+//         .width = EPD_WIDTH,
+//         .height = EPD_HEIGHT,
+//         .color_inv = 1,
+//     };
+
+//     char ip_str[16] = {0};
+//     char version_str[64] = {0}; // Increased buffer size
+
+//     // Get IP address
+//     esp_netif_ip_info_t ip_info;
+//     if (esp_netif_get_ip_info(esp_netif_get_handle_from_ifkey("WIFI_STA_DEF"), &ip_info) == ESP_OK) {
+//         snprintf(ip_str, sizeof(ip_str), IPSTR, IP2STR(&ip_info.ip));
+//     } else {
+//         snprintf(ip_str, sizeof(ip_str), "No IP");
+//     }
+
+//     // Get firmware version
+//     const esp_app_desc_t *app_desc = esp_app_get_description(); // Use updated function
+//     snprintf(version_str, sizeof(version_str), "FW: %.28s", app_desc->version); // Handle truncation
+
+//     while (1) {
+//         device = iot_epaper_create(NULL, &epaper_conf);
+//         iot_epaper_set_rotate(device, E_PAPER_ROTATE_270);
+
+//         // Clear the display
+//         iot_epaper_clean_paint(device, UNCOLORED);
+
+//         // Display IP address
+//         iot_epaper_draw_string(device, 10, 10, "IP Address:", &epaper_font_16, COLORED);
+//         iot_epaper_draw_string(device, 10, 30, ip_str, &epaper_font_16, COLORED);
+
+//         // Display firmware version
+//         iot_epaper_draw_string(device, 10, 60, "Firmware:", &epaper_font_16, COLORED);
+//         iot_epaper_draw_string(device, 10, 80, version_str, &epaper_font_16, COLORED);
+
+//         // Display the frame buffer
+//         iot_epaper_display_frame(device, NULL);
+
+//         // Delete the device to free resources
+//         iot_epaper_delete(device, true);
+
+//         // Refresh every 10 seconds
+//         vTaskDelay(10000 / portTICK_PERIOD_MS);
+//     }
+// }
 
 
 // Add HTTP server variables
-static const char *TAG = "SIMPLE_OTA_EXAMPLE";
+
 static httpd_handle_t server = NULL;
-static char ota_status[STATUS_BUF_SIZE] = "Initializing OTA...";
 static SemaphoreHandle_t status_mutex = NULL;
 
 // HTML template
@@ -210,7 +375,7 @@ void simple_ota_example_task(void *pvParameter) {
             .http_config = &config,
         };
 
-        ret = esp_https_ota(&ota_config); // Removed duplicate 'esp_err_t' declaration
+        ret = esp_https_ota(&ota_config); 
         if (ret == ESP_OK) {
             update_status("OTA Success!\nRebooting in 5 seconds...");
             vTaskDelay(5000 / portTICK_PERIOD_MS);
@@ -227,7 +392,7 @@ void simple_ota_example_task(void *pvParameter) {
         update_status("OTA Failed after %d attempts: %s", MAX_RETRIES, esp_err_to_name(ret));
     }
     
-    vTaskDelete(NULL); // Correct placement outside loop
+    vTaskDelete(NULL); 
 }
 
 static void print_sha256(const uint8_t *image_hash, const char *label) {
@@ -272,6 +437,10 @@ void app_main(void) {
 #if CONFIG_EXAMPLE_CONNECT_WIFI
     esp_wifi_set_ps(WIFI_PS_NONE);
 #endif
+
+    // Initialize EPD display 
+    ESP_LOGI(TAG, "Initializing EPD display...");
+    xTaskCreate(e_paper_task, "epaper_task", 4 * 1024, NULL, 5, NULL); 
 
     // Create status mutex
     status_mutex = xSemaphoreCreateMutex();

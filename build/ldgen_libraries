@@ -81,5 +81,6 @@ C:/Users/shi/Desktop/simple_ota_example/build/esp-idf/perfmon/libperfmon.a
 C:/Users/shi/Desktop/simple_ota_example/build/esp-idf/rt/librt.a
 C:/Users/shi/Desktop/simple_ota_example/build/esp-idf/spiffs/libspiffs.a
 C:/Users/shi/Desktop/simple_ota_example/build/esp-idf/wifi_provisioning/libwifi_provisioning.a
+C:/Users/shi/Desktop/simple_ota_example/build/esp-idf/epd_driver/libepd_driver.a
 C:/Users/shi/Desktop/simple_ota_example/build/esp-idf/protocol_examples_common/libprotocol_examples_common.a
 C:/Users/shi/Desktop/simple_ota_example/build/esp-idf/main/libmain.a

@@ -831,6 +831,13 @@ C:/Users/shi/Desktop/simple_ota_example/build/esp-idf/wifi_provisioning/CMakeFil
 C:/Users/shi/Desktop/simple_ota_example/build/esp-idf/wifi_provisioning/CMakeFiles/install.dir
 C:/Users/shi/Desktop/simple_ota_example/build/esp-idf/wifi_provisioning/CMakeFiles/install/local.dir
 C:/Users/shi/Desktop/simple_ota_example/build/esp-idf/wifi_provisioning/CMakeFiles/install/strip.dir
+C:/Users/shi/Desktop/simple_ota_example/build/esp-idf/epd_driver/CMakeFiles/__idf_epd_driver.dir
+C:/Users/shi/Desktop/simple_ota_example/build/esp-idf/epd_driver/CMakeFiles/edit_cache.dir
+C:/Users/shi/Desktop/simple_ota_example/build/esp-idf/epd_driver/CMakeFiles/rebuild_cache.dir
+C:/Users/shi/Desktop/simple_ota_example/build/esp-idf/epd_driver/CMakeFiles/list_install_components.dir
+C:/Users/shi/Desktop/simple_ota_example/build/esp-idf/epd_driver/CMakeFiles/install.dir
+C:/Users/shi/Desktop/simple_ota_example/build/esp-idf/epd_driver/CMakeFiles/install/local.dir
+C:/Users/shi/Desktop/simple_ota_example/build/esp-idf/epd_driver/CMakeFiles/install/strip.dir
 C:/Users/shi/Desktop/simple_ota_example/build/esp-idf/protocol_examples_common/CMakeFiles/__idf_protocol_examples_common.dir
 C:/Users/shi/Desktop/simple_ota_example/build/esp-idf/protocol_examples_common/CMakeFiles/edit_cache.dir
 C:/Users/shi/Desktop/simple_ota_example/build/esp-idf/protocol_examples_common/CMakeFiles/rebuild_cache.dir
