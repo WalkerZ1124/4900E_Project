@@ -4,5 +4,8 @@
     "idf.toolsPathWin": "C:\\Users\\shi\\.espressif",
     "idf.pythonInstallPath": "C:\\Users\\shi\\.espressif\\tools\\idf-python\\3.11.2\\python.exe",
     "idf.flashType": "UART",
-    "idf.portWin": "COM4"
+    "idf.portWin": "COM4",
+    "files.associations": {
+        "task.h": "c"
+    }
 }

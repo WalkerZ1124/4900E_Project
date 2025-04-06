@@ -24,6 +24,25 @@
 #include "protocol_examples_common.h"
 #include "errno.h"
 
+//############ Include epd driver ##############
+#include "epaper-29-ws.h"
+#include "epaper_fonts.h"
+
+// Pin definition of the ePaper module
+#define MOSI_PIN    14
+#define MISO_PIN    -1
+#define SCK_PIN     13
+#define BUSY_PIN    25
+#define DC_PIN      27
+#define RST_PIN     26
+#define CS_PIN      15
+// #####################################
+// log buffer for epaper
+#define EPD_LOG_BUF_SIZE 128 
+static char epd_log_buffer[EPD_LOG_BUF_SIZE] = {0};
+static SemaphoreHandle_t log_mutex = NULL;
+static int epd_log_line = 0; // To alternate lines on EPD
+
 #if CONFIG_EXAMPLE_CONNECT_WIFI
 #include "esp_wifi.h"
 #endif
@@ -43,6 +62,37 @@ static void http_cleanup(esp_http_client_handle_t client)
 {
     esp_http_client_close(client);
     esp_http_client_cleanup(client);
+}
+
+// Custom vprintf implementation to capture logs
+static int epaper_log_vprintf(const char *fmt, va_list args) {
+    char temp_buffer[128]; // Temporary buffer for formatting
+    int len = vsnprintf(temp_buffer, sizeof(temp_buffer), fmt, args); // Format the log string
+
+    // Also print to the serial console
+    vprintf(fmt, args);
+
+    // Filter for specific log levels if desired (e.g., only I and E)
+    // if (temp_buffer[0] == 'I' || temp_buffer[0] == 'E') { // Simple check for first letter
+        if (xSemaphoreTake(log_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+            // Simple approach: store the latest log line, maybe alternate between two lines on screen
+            int buffer_half = EPD_LOG_BUF_SIZE / 2;
+            int offset = (epd_log_line % 2) * buffer_half; // Alternate between first and second half
+
+            // Find the actual message start after "L (timestamp) TAG: "
+            char *msg_start = strchr(temp_buffer, ':');
+            if (msg_start && *(msg_start + 1) == ' ') {
+                 msg_start += 2; // Point to the start of the actual message
+            } else {
+                 msg_start = temp_buffer; // Fallback to using the whole line
+            }
+
+            snprintf(epd_log_buffer + offset, buffer_half, "%c: %.30s", temp_buffer[0], msg_start); // Copy Level and truncated message
+            epd_log_line++;
+            xSemaphoreGive(log_mutex);
+        }
+    // }
+    return len; // Return the number of characters that *would* have been written
 }
 
 static void __attribute__((noreturn)) task_fatal_error(void)
@@ -86,6 +136,98 @@ static void corrupt_firmware(const esp_partition_t *partition) {
     } else {
         ESP_LOGI(TAG, "Firmware header corrupted successfully");
     }
+}
+
+void e_paper_task(void *pvParameter) {
+    epaper_handle_t device = NULL;
+
+    epaper_conf_t epaper_conf = {
+        .busy_pin = BUSY_PIN,
+        .cs_pin = CS_PIN,
+        .dc_pin = DC_PIN,
+        .miso_pin = MISO_PIN,
+        .mosi_pin = MOSI_PIN,
+        .reset_pin = RST_PIN,
+        .sck_pin = SCK_PIN,
+
+        .rst_active_level = 0,
+        .busy_active_level = 1,
+
+        .dc_lev_data = 1,
+        .dc_lev_cmd = 0,
+
+        .clk_freq_hz = 20 * 1000 * 1000,
+        .spi_host = HSPI_HOST,
+
+        .width = EPD_WIDTH,
+        .height = EPD_HEIGHT,
+        .color_inv = 1,
+    };
+
+    // *** Initialize device ONCE before the loop ***
+    device = iot_epaper_create(NULL, &epaper_conf);
+    if (!device) {
+        ESP_LOGE(TAG, "Failed to create ePaper device");
+        vTaskDelete(NULL); // Exit task if init fails
+        return;
+    }
+    iot_epaper_set_rotate(device, E_PAPER_ROTATE_270);
+
+
+    char ip_str[16] = {0};
+    char version_str[64] = {0};
+    char log_line1[EPD_LOG_BUF_SIZE / 2 + 1] = {0}; // Local buffers to hold log while drawing
+    char log_line2[EPD_LOG_BUF_SIZE / 2 + 1] = {0};
+
+    while (1) {
+        // Get IP address 
+        esp_netif_ip_info_t ip_info;
+        if (esp_netif_get_ip_info(esp_netif_get_handle_from_ifkey("WIFI_STA_DEF"), &ip_info) == ESP_OK) {
+            snprintf(ip_str, sizeof(ip_str), IPSTR, IP2STR(&ip_info.ip));
+        } else {
+            snprintf(ip_str, sizeof(ip_str), "No IP");
+        }
+
+        // Get firmware version
+        const esp_app_desc_t *app_desc = esp_ota_get_app_description();
+        snprintf(version_str, sizeof(version_str), "FW: %.20s", app_desc->version);
+
+        if (xSemaphoreTake(log_mutex, pdMS_TO_TICKS(50)) == pdTRUE) {
+             strncpy(log_line1, epd_log_buffer, EPD_LOG_BUF_SIZE / 2);
+             log_line1[EPD_LOG_BUF_SIZE / 2] = '\0'; // Ensure null termination
+             strncpy(log_line2, epd_log_buffer + EPD_LOG_BUF_SIZE / 2, EPD_LOG_BUF_SIZE / 2);
+             log_line2[EPD_LOG_BUF_SIZE / 2] = '\0'; // Ensure null termination
+             xSemaphoreGive(log_mutex);
+        } else {
+             ESP_LOGW(TAG, "Couldn't get log mutex for EPD update");
+        }
+
+
+        // Clear the display buffer
+        iot_epaper_clean_paint(device, UNCOLORED);
+
+        // Display IP address Label
+        iot_epaper_draw_string(device, 5, 5, "IP Address:", &epaper_font_16, COLORED);
+        // Display the actual IP address below the label
+        iot_epaper_draw_string(device, 5, 25, ip_str, &epaper_font_16, COLORED);
+
+        // Display firmware version
+        iot_epaper_draw_string(device, 5, 45, version_str, &epaper_font_16, COLORED);
+
+        // Display Log Lines
+        iot_epaper_draw_string(device, 5, 60, "Logs:", &epaper_font_12, COLORED);
+        iot_epaper_draw_string(device, 5, 75, log_line1, &epaper_font_12, COLORED);
+        iot_epaper_draw_string(device, 5, 90, log_line2, &epaper_font_12, COLORED);
+
+        iot_epaper_display_frame(device, NULL);
+
+
+        // Refresh every 10 seconds
+        vTaskDelay(pdMS_TO_TICKS(10000)); 
+    }
+
+     iot_epaper_delete(device, true);
+     vTaskDelete(NULL);
 }
 
 static void ota_example_task(void *pvParameter)
@@ -265,7 +407,7 @@ static void ota_example_task(void *pvParameter)
         http_cleanup(client);
         task_fatal_error();
     }
-    
+
     // Corrupt the firmware image in the next boot partition
     // corrupt_firmware(update_partition);
 
@@ -296,6 +438,16 @@ static bool diagnostic(void)
 void app_main(void)
 {
     ESP_LOGI(TAG, "OTA example app_main start");
+
+    // Create the mutex for log buffer access 
+    log_mutex = xSemaphoreCreateMutex();
+    if (log_mutex == NULL) {
+        ESP_LOGE(TAG, "Failed to create log mutex!");
+        // Handle error appropriately, maybe halt?
+    }
+
+    // Redirect ESP_LOGx output
+    esp_log_set_vprintf(epaper_log_vprintf);
 
     uint8_t sha_256[HASH_LEN] = { 0 };
     esp_partition_t partition;
@@ -353,6 +505,8 @@ void app_main(void)
      * examples/protocols/README.md for more information about this function.
      */
     ESP_ERROR_CHECK(example_connect());
+
+    xTaskCreate(e_paper_task, "epaper_task", 4096, NULL, 5, NULL);
 
 #if CONFIG_EXAMPLE_CONNECT_WIFI
     /* Ensure to disable any WiFi power save mode, this allows best throughput
